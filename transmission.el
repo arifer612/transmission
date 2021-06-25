@@ -1155,6 +1155,19 @@ When called with a prefix, prompt for DIRECTORY."
     (let ((arguments (list :ids ids :move t :location (expand-file-name location))))
       (transmission-request-async nil "torrent-set-location" arguments))))
 
+(defun transmission-rename (ids name)
+  "Rename torrent file at point or marked to a new NAME."
+  (transmission-interactive
+   (let* ((filename (read-string "New name: "))
+          (prompt (format "Rename torrent to %s? " filename)))
+     (if (y-or-n-p prompt) (list ids filename) '(nil nil))))
+  (if (eq (length ids) 1)
+      (let* ((args `(:ids ,ids :fields 'name))
+             (path (cdr (assoc 'name (elt (cdr (assoc 'torrents (transmission-request "torrent-get" args))) 0))))
+             (arguments (list :ids ids :name name :path path)))
+        (message (format "Renaming %s to %s" path name))
+      (transmission-request-async nil "torrent-rename-path" arguments))))
+
 (defun transmission-reannounce (ids)
   "Reannounce torrent at point, marked, or in region."
   (transmission-interactive (list ids))
