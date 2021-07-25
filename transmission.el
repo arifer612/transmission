@@ -90,6 +90,10 @@
                  (integer :tag "Port"))
   :link '(function-link make-network-process))
 
+(defcustom transmission-proxy-service nil
+  "Proxy service of the Transmission session."
+  :type 'string)
+
 (defcustom transmission-rpc-path "/transmission/rpc"
   "Path to the Transmission session RPC interface."
   :type '(choice (const :tag "Default" "/transmission/rpc")
@@ -401,7 +405,10 @@ and port default to `transmission-host' and
     (let ((auth (transmission--auth-string)))
       (when auth (push (cons "Authorization" auth) headers)))
     (with-temp-buffer
-      (insert (concat "POST " transmission-rpc-path " HTTP/1.1\r\n"))
+      ;; assuming a proxy, ignoring local/sockets
+      (let ((uri (format "http://%s:%s%s" transmission-host transmission-service
+                         transmission-rpc-path)))
+        (insert (concat "POST " uri " HTTP/1.1\r\n")))
       (dolist (elt headers)
         (insert (format "%s: %s\r\n" (car elt) (cdr elt))))
       (insert "\r\n" content)
@@ -435,8 +442,14 @@ Return JSON object parsed from content."
   "Return a network client process connected to a Transmission daemon.
 When creating a new connection, the address is determined by the
 custom variables `transmission-host' and `transmission-service'."
-  (let ((socket (when (file-name-absolute-p transmission-host)
-                  (expand-file-name transmission-host)))
+  (let* ((socket (when (file-name-absolute-p transmission-host)
+                   (expand-file-name transmission-host)))
+         (proxy (cond (transmission-proxy-service)
+                      ((assoc '"http" url-proxy-services)
+                       (format "http://%s" (cdr (assoc '"http" url-proxy-services))))
+                      ((getenv "http_proxy"))))
+         (proxy-url (when proxy
+                      (url-generic-parse-url proxy)))
         buffer process)
     (unwind-protect
         (prog1
@@ -444,8 +457,10 @@ custom variables `transmission-host' and `transmission-service'."
                   process
                   (make-network-process
                    :name "transmission" :buffer buffer
-                   :host (when (null socket) transmission-host)
-                   :service (or socket transmission-service)
+                   :host (if proxy-url (url-host proxy-url)
+                           (when (null socket) transmission-host))
+                   :service (if proxy-url (url-port proxy-url)
+                              (or socket transmission-service))
                    :family (when socket 'local) :noquery t
                    :coding 'binary :filter-multibyte nil))
           (setq buffer nil process nil))
